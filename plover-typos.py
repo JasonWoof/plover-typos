@@ -20,14 +20,21 @@
 import re
 import os
 import sys
+import argparse
+import json
 
 # SETTINGS:
-STROKES_LOG_PATH = os.getenv('XDG_DATA_HOME', os.getenv('HOME', '.') + '/.data') + '/plover/strokes.log'
-SCORE_DAMPENING = 0.9
-SCORE_GOOD = 1
-SCORE_BAD = -3
-SCORE_THRESH = 5  # scores worse than this are printed
-COUNT_THRESH = 15 # only if they've been typed at least this many times
+DEFAULT_STROKES_LOG_PATH = os.getenv('XDG_DATA_HOME', os.getenv('HOME', '.') + '/.data') + '/plover/strokes.log'
+
+ap = argparse.ArgumentParser(prog="plover_typos") # python 2.7 seems to not support: description="Find your common misstrokes", allow_abbrev=False)
+ap.add_argument('-n', '--count', metavar='N', type=int, help="Max number of typos printed (default: 100)", default=100)
+ap.add_argument('--score-bad', metavar='N.N', type=float, help="How many points are deducted for misstrokes? (Currect strokes score 1.) Default: 3", default=3)
+ap.add_argument('--score-dampening', metavar='N.N', type=float, help="Lower values proirotize more recent strokes in score. 1.0 is uniform accross time. (default: 0.9)", default=0.9)
+ap.add_argument('--min-stroke-count', metavar='N', type=int, help="Ignore strokes that have been typed fewer times than this (default: 15)", default=15)
+ap.add_argument('--max-score', metavar='N.N', type=float, help="Only output strokes with a score worse than this (Default: 10)", default=10)
+ap.add_argument('-j', '--json', dest="format", const="json", default="report", action='store_const', help="Set output format to JSON (default: txt report)")
+ap.add_argument('filename', nargs='?', help="path to plover's strokes.log (default: " + DEFAULT_STROKES_LOG_PATH + ")", default=DEFAULT_STROKES_LOG_PATH)
+args = ap.parse_args()
 
 # new strokes.log format examples:
 #
@@ -75,14 +82,12 @@ COUNT_THRESH = 15 # only if they've been typed at least this many times
 # keep stats here
 scores = {}
 
-tries = [0] # the first item effects the score of the _next_ word typed
+tries = [0] # the first item affects the score of the _next_ word typed
+
+# constants to track state of parser
 OLD_FORMAT = 0
 NORMAL = 1
-DELETING = 2
-DELETED = 3
-DUNNO = 4
-BAD = 5
-GOOD = 6
+DELETING = 2 # and this one is used for fun as a dummy value in the blacklist
 
 # These throw off the statistics, because they don't take a separate delete
 # stroke to delete. Ignore them
@@ -106,29 +111,29 @@ state = OLD_FORMAT
 def score_init(word, date):
 	if word in scores:
 		return
-	scores[word] = {"count": 0, "score": 0, "date": date, "prev": DUNNO}
+	scores[word] = {"count": 0, "score": 10, "date": date}
 	
 def points(word, date):
 	score_init(word, date)
 	scores[word]['count'] += 1
 	if tries[0] == 0: # first try
-		scores[word]['score'] *= SCORE_DAMPENING
-		scores[word]['score'] += SCORE_GOOD
+		scores[word]['score'] *= args.score_dampening
+		scores[word]['score'] += 1
 	else:
 		for i in range(0, tries[0]):
-			scores[word]['score'] *= SCORE_DAMPENING
-			scores[word]['score'] += SCORE_BAD
+			scores[word]['score'] *= args.score_dampening
+			scores[word]['score'] -= args.score_bad
 	scores[word]['date'] = date
 def undo_points(word, date):
 	score_init(word, date)
 	scores[word]['count'] -= 1
 	if tries[0] == 0: # first try
-		scores[word]['score'] -= SCORE_GOOD
-		scores[word]['score'] /= SCORE_DAMPENING
+		scores[word]['score'] -= 1
+		scores[word]['score'] /= args.score_dampening
 	else:
 		for i in range(0, tries[0]):
-			scores[word]['score'] -= SCORE_BAD
-			scores[word]['score'] /= SCORE_DAMPENING
+			scores[word]['score'] += args.score_bad
+			scores[word]['score'] /= args.score_dampening
 
 new_log_format = re.compile('^Stroke\\(.*:')
 
@@ -140,7 +145,7 @@ def extract_translation(event):
 	else:
 		return matches.group(1)
 
-with open(STROKES_LOG_PATH, 'rt') as log_file:
+with open(args.filename, 'rt') as log_file:
 	for line in log_file:
 		date, time, event = line.strip().split(' ', 2)
 		if state == OLD_FORMAT:
@@ -178,15 +183,23 @@ with open(STROKES_LOG_PATH, 'rt') as log_file:
 			if len(tries) > 50:
 				tries.pop()
 
-print("Troublesome words:  (worst offenders shown last)\n")
 baddies = []
 for word in scores:
-	if scores[word]['count'] > COUNT_THRESH and scores[word]['score'] < SCORE_THRESH:
+	if scores[word]['count'] >= args.min_stroke_count and scores[word]['score'] < args.max_score:
 		baddies.append([scores[word]['score'], word])
 def compare_first(a, b):
 	if a[0] > b[0]:
 		return 1
 	return 0
 baddies.sort(key=lambda baddy: baddy[0], reverse=True)
-for word in baddies:
-	print("   %s: %f" % (word[1], word[0]))
+if len(baddies) > args.count:
+	baddies = baddies[(len(baddies) - args.count):]
+if args.format == 'json':
+	print(json.dumps(map((lambda a: a[1]), baddies)))
+else:
+	if len(baddies) > 0:
+		print("Troublesome words:  (worst offenders shown last)\n")
+		for word in baddies:
+			print("   %s: %f" % (word[1], word[0]))
+	else:
+		print("No matches found")
