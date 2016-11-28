@@ -1,7 +1,8 @@
 About
 =====
 
-plover-typos: generate a report of frequent/recent typos you made in plover
+plover-typos: generate a report of frequent/recent typos you made in
+[plover](http://www.openstenoproject.org/)
 
 USAGE
 -----
