@@ -145,43 +145,52 @@ def extract_translation(event):
 	else:
 		return matches.group(1)
 
-with open(args.filename, 'rt') as log_file:
-	for line in log_file:
-		date, time, event = line.strip().split(' ', 2)
-		if state == OLD_FORMAT:
-			if new_log_format.match(event):
-				state = NORMAL
-				# fall through
-			else:
+found_files = 0
+for filename in [args.filename + '.1', args.filename]:
+	if not os.path.isfile(filename):
+		continue
+	found_files += 1
+	with open(filename, 'rt') as log_file:
+		for line in log_file:
+			date, time, event = line.strip().split(' ', 2)
+			if state == OLD_FORMAT:
+				if new_log_format.match(event):
+					state = NORMAL
+					# fall through
+				else:
+					continue
+			if event == "*Stroke(* : ['*'])":
+				state = DELETING
+				# delay acton 'til we know what the translation is
 				continue
-		if event == "*Stroke(* : ['*'])":
-			state = DELETING
-			# delay acton 'til we know what the translation is
-			continue
-		if event in event_blacklist:
-			continue
-		if event.startswith('*Translation'):
-			word = extract_translation(event)
-			# pop then score
-			if len(tries) > 1:
-				tries.pop(0)
-			else:
-				# ran out of history, just reset
-				tries[0] = 0
-			if word != '':
-				undo_points(word, date)
-			if state == DELETING:
-				state = NORMAL
-				tries[0] += 1
-		elif event.startswith('Translation'):
-			# a normal stroke
-			word = extract_translation(event)
-			# score then push
-			if word != '':
-				points(word, date)
-			tries.insert(0, 0) # prepend a zero
-			if len(tries) > 50:
-				tries.pop()
+			if event in event_blacklist:
+				continue
+			if event.startswith('*Translation'):
+				word = extract_translation(event)
+				# pop then score
+				if len(tries) > 1:
+					tries.pop(0)
+				else:
+					# ran out of history, just reset
+					tries[0] = 0
+				if word != '':
+					undo_points(word, date)
+				if state == DELETING:
+					state = NORMAL
+					tries[0] += 1
+			elif event.startswith('Translation'):
+				# a normal stroke
+				word = extract_translation(event)
+				# score then push
+				if word != '':
+					points(word, date)
+				tries.insert(0, 0) # prepend a zero
+				if len(tries) > 50:
+					tries.pop()
+
+if found_files == 0:
+	print("Could not find log file(s). Try passing a full path to your strokes.log as the final argument")
+	sys.exit(0)
 
 baddies = []
 for word in scores:
