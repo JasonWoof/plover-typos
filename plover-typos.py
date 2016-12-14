@@ -150,7 +150,7 @@ def points(word, date):
 		scores[word]['score'] += 1
 	else:
 		scores[word]['score'] *= args.score_dampening
-		scores[word]['score'] -= 2 - (args.score_bad / tries[0])
+		scores[word]['score'] -= (2 - (1 / tries[0])) * args.score_bad
 	scores[word]['date'] = date
 def undo_points(word, date):
 	score_init(word, date)
@@ -159,7 +159,7 @@ def undo_points(word, date):
 		scores[word]['score'] -= 1
 		scores[word]['score'] /= args.score_dampening
 	else:
-		scores[word]['score'] += 2 - (args.score_bad / tries[0])
+		scores[word]['score'] += (2 - (1 / tries[0])) * args.score_bad
 		scores[word]['score'] /= args.score_dampening
 
 new_log_format = re.compile('^Stroke\\(.*:')
